@@ -73,6 +73,13 @@ impl<'a> Reader<'a> {
         String::from_utf8(buf).unwrap()
     }
 
+    pub fn read_string_inexact(&mut self, max_len: usize) -> String {
+        let mut buf = Vec::new();
+        buf.resize(max_len, 0);
+        let _n_read = self.cursor.read(&mut buf).unwrap();
+        String::from_utf8_lossy(&buf).to_string()
+    }
+
     pub fn read_bytes(&mut self, n_bytes: usize) -> Vec<u8> {
         let mut buf = Vec::new();
         buf.resize(n_bytes, 0);

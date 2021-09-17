@@ -6,7 +6,7 @@ use crate::logger::Logger;
 use crate::reader::Reader;
 
 pub fn parse_mp4(buf: &mut Vec<u8>, mut logger: &mut Logger) {
-    let mut reader = Reader::new(&buf);
+    let mut reader = Reader::new(buf);
 
     while reader.position() < buf.len() as u64 {
         parse_box(&mut reader, &mut logger);
@@ -22,13 +22,14 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
 
     let mut size = reader.read_u32() as u64;
     let box_type = reader.read_string(4);
-    //logger.log(format!("{:?} ({} bytes)", box_type, size));
+    logger.debug_box(format!("{:?} ({} bytes)", box_type, size));
 
     if size == 1 {
         // largesize
         size = reader.read_u64();
     } else if size == 0 {
-        todo!("Handle box with size=0 (box extends to EOF)")
+        println!("DEBUG: {:?}", reader.read_string_inexact(256));
+        todo!("Handle box with size=0 (box '{}' extends to EOF)", box_type)
     }
 
     assert!(
@@ -95,8 +96,8 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
                 logger.debug_box_attr("Duration", &duration);
                 let rate = reader.read_fixed_point_16_16();
                 let volume = reader.read_fixed_point_8_8();
-                reader.skip_bytes(2).unwrap(); // reserved
-                reader.skip_bytes(8).unwrap(); // reserved
+                let _reserved = reader.read_string(2);
+                let _reserved = reader.read_string(8);
                 let mut matrix = Vec::new();
                 for _ in 0..9 {
                     matrix.push(reader.read_u32());
@@ -138,19 +139,23 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
                 todo!("tkhd version 1")
             } else {
                 let creation_time = as_timestamp(reader.read_u32());
-                let modification_time = as_timestamp(reader.read_u32());
-                let track_id = reader.read_u32();
-                reader.skip_bytes(4).unwrap(); // reserved
-                let duration = reader.read_u32();
                 logger.debug_box_attr("Created", &creation_time);
+                let modification_time = as_timestamp(reader.read_u32());
                 logger.debug_box_attr("Modified", &modification_time);
+                let track_id = reader.read_u32();
                 logger.debug_box_attr("Track ID", &track_id);
+                let reserved = reader.read_string(4);
+                logger.debug_box_attr("(reserved)", &reserved);
+                let duration = reader.read_u32();
                 logger.debug_box_attr("Duration", &duration);
-                reader.skip_bytes(4 * 2).unwrap(); // reserved
+
+                let reserved = reader.read_string(4 * 2);
+                logger.debug_box_attr("(reserved)", &reserved);
                 let layer = reader.read_u16();
                 let alternate_group = reader.read_u16();
                 let volume = reader.read_fixed_point_8_8();
-                reader.skip_bytes(2).unwrap(); // reserved
+                let reserved = reader.read_string(2);
+                logger.debug_box_attr("(reserved)", &reserved);
                 let mut matrix = Vec::new();
                 for _ in 0..9 {
                     matrix.push(reader.read_u32());
@@ -195,11 +200,184 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             }
         }
         "mdia" => {
-            logger.log_box_title("Media Box");
+            logger.log_box_title("Media Box (container)");
+            logger.increase_indent();
+            let end_offset = reader.position() + inner_size as u64;
+            while reader.position() < end_offset {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "mdhd" => {
+            logger.log_box_title("Media Header Box");
+
+            let version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            if version == 1 {
+                todo!("mdhd version 1")
+            } else {
+                let creation_time = as_timestamp(reader.read_u32());
+                let modification_time = as_timestamp(reader.read_u32());
+                let timescale = reader.read_u32();
+                let duration = reader.read_u32();
+                logger.debug_box_attr("Created", &creation_time);
+                logger.debug_box_attr("Modified", &modification_time);
+                logger.debug_box_attr("Timescale", &timescale);
+                logger.debug_box_attr("Duration", &duration);
+            }
+
+            let language = reader.read_bytes(2);
+            // Each char is stored as 5bit ascii - 0x60
+            let c1 = ((language[0] & 0b0111_1100) >> 2) + 0x60;
+            let c2 = ((language[0] & 0b0000_0011) << 3) + ((language[1] & 0b1110_0000) >> 5) + 0x60;
+            let c3 = (language[1] & 0b0001_1111) + 0x60;
+            let language = String::from_utf8(vec![c1, c2, c3]).unwrap();
+            logger.debug_box_attr("Language", &language);
+
+            let _pre_defined = reader.read_bytes(2);
+        }
+        "hdlr" => {
+            logger.log_box_title("Handler Reference Box");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            let predefined = reader.read_string(4);
+            logger.debug_box_attr("(predefined)", &predefined);
+            let handler_type = reader.read_string(4);
+            logger.debug_box_attr("Handler type", &handler_type);
+            let _reserved = reader.read_string(4 * 3);
+            let remaining = inner_size - 24;
+            let name = reader.read_string(remaining as usize);
+            logger.debug_box_attr("Name", &name);
+        }
+        "minf" => {
+            logger.log_box_title("Media Information Box (container)");
+            logger.increase_indent();
+            let end_offset = reader.position() + inner_size as u64;
+            while reader.position() < end_offset {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "vmhd" => {
+            logger.log_box_title("Video media header");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            let graphicsmode = reader.read_u16();
+            let opcolor = reader.read_bytes(2 * 3);
+            logger.debug_box_attr("Graphics mode", &graphicsmode);
+            logger.debug_box(format!("Opcolor: {:?}", &opcolor));
+        }
+        "dinf" => {
+            logger.log_box_title("Data Information Box (container)");
+            logger.increase_indent();
+            let end_offset = reader.position() + inner_size as u64;
+            while reader.position() < end_offset {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "dref" => {
+            logger.log_box_title("Data Reference Box");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            let entry_count = reader.read_u32();
+            logger.increase_indent();
+            for _ in 0..entry_count {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "url " => {
+            logger.log_box_title("Data Entry URL Box");
+            let _version = reader.read_u8();
+            let flags = reader.read_bytes(3);
+            if flags == [0, 0, 1] {
+                logger.debug_box("Self-contained")
+            } else {
+                todo!("Handle external media URL")
+            }
+        }
+        "stbl" => {
+            logger.log_box_title("Sample Table Box (container)");
+            logger.increase_indent();
+            let end_offset = reader.position() + inner_size as u64;
+            while reader.position() < end_offset {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "stsd" => {
+            logger.log_box_title("Sample Description Box");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            logger.increase_indent();
+            for _ in 0..entry_count {
+                // Technically not boxes, but can be parsed as if they are
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "avc1" => {
+            logger.log_box_title("SampleEntry(avc1)");
+            //Technically not a box, but can be parsed as if it was
+            let _reserved = reader.read_string(6);
+            let data_reference_index = reader.read_u16();
+            logger.debug_box_attr("Data reference index", &data_reference_index);
+            let remaining = inner_size - 8;
+            reader.skip_bytes(remaining as u32).unwrap();
+            logger.debug_box(format!("(skipping {} bytes of data)", remaining));
+        }
+        "stts" => {
+            logger.log_box_title("Decoding Time to Sample Box");
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            reader.skip_bytes((4 + 4) * entry_count).unwrap();
+            logger.debug_box(format!(
+                "(skipping {} bytes of entries)",
+                (4 + 4) * entry_count
+            ));
+        }
+        "stss" => {
+            logger.log_box_title("Sync Sample Box");
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            reader.skip_bytes(4 * entry_count).unwrap();
+            logger.debug_box(format!("(skipping {} bytes of entries)", 4 * entry_count));
+        }
+        "ctts" => {
+            logger.log_box_title("Composition Time to Sample Box");
             logger.debug_box("(skipping)"); //TODO
-            reader
-                .skip_bytes(inner_size as u32)
-                .expect("Truncated 'mdia' box");
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+        "stsc" => {
+            logger.log_box_title("Sample to Chunk Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+        "stsz" => {
+            logger.log_box_title("Sample Table Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+        "stco" => {
+            logger.log_box_title("Chunk Offset Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
         }
         "udta" => {
             logger.log_box_title("User Data Box (container)");
@@ -211,12 +389,26 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.decrease_indent();
         }
         "meta" => {
-            logger.log_box_title("The Meta Box");
+            logger.log_box_title("The Meta Box (container)");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let remaining = inner_size - 4;
+            logger.increase_indent();
+            let end_offset = reader.position() + remaining;
+            while reader.position() < end_offset {
+                parse_box(reader, logger);
+            }
+            logger.decrease_indent();
+        }
+        "ilst" => {
+            logger.log_box_title("Unknown: 'ilst'");
             logger.debug_box("(skipping)"); //TODO
             reader
                 .skip_bytes(inner_size as u32)
-                .expect("Truncated 'meta' box");
+                .expect("Truncated 'ilst' box");
         }
+
         _ => {
             todo!("Unhandled box: {:?} (inner size: {})", box_type, inner_size);
         }

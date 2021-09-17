@@ -54,10 +54,10 @@ impl Logger {
     }
 
     pub fn increase_indent(&mut self) {
-        self.indent += 2;
+        self.indent += 4;
     }
 
     pub fn decrease_indent(&mut self) {
-        self.indent -= 2;
+        self.indent -= 4;
     }
 }
