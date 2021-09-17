@@ -1,22 +1,25 @@
-use std::time::{Duration, UNIX_EPOCH};
-
-use chrono::{DateTime, Utc};
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::logger::Logger;
 use crate::reader::Reader;
+
+enum HandleUnknown {
+    Skip,
+    Panic,
+}
 
 pub fn parse_mp4(buf: &mut Vec<u8>, mut logger: &mut Logger) {
     let mut reader = Reader::new(buf);
 
     while reader.position() < buf.len() as u64 {
-        parse_box(&mut reader, &mut logger);
+        parse_box(&mut reader, &mut logger, HandleUnknown::Panic);
     }
 
     logger.debug(format!("[{}]", reader.position()));
     logger.debug("Reached end of file");
 }
 
-fn parse_box(reader: &mut Reader, logger: &mut Logger) {
+fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnknown) {
     let start_offset = reader.position();
     logger.log_start_of_box(start_offset);
 
@@ -52,11 +55,13 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             for _ in 0..remaining / 4 {
                 compatible_brands.push(reader.read_string(4));
             }
+            logger.debug_box_attr("Major brand", &major_brand);
+            logger.debug_box_attr("Minor version", &minor_version);
+            logger.debug_box(format!("Compatible: {:?}", compatible_brands));
 
-            logger.debug_box(format!(
-                "{:?}, {}, {:?}",
-                major_brand, minor_version, compatible_brands
-            ));
+            if major_brand == "qt  " {
+                println!("WARN: Apple QuickTime is not supported.");
+            }
         }
         "free" => {
             logger.log_box_title("Free Space Box");
@@ -74,7 +79,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -119,7 +124,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -174,7 +179,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -204,7 +209,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -257,7 +262,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -272,12 +277,22 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.debug_box_attr("Graphics mode", &graphicsmode);
             logger.debug_box(format!("Opcolor: {:?}", &opcolor));
         }
+        "smhd" => {
+            logger.log_box_title("Sound media header");
+
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+
+            let balance = reader.read_fixed_point_8_8();
+            logger.debug_box_attr("Balance", &balance);
+            let _reserved = reader.read_bytes(2);
+        }
         "dinf" => {
             logger.log_box_title("Data Information Box (container)");
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -290,7 +305,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             let entry_count = reader.read_u32();
             logger.increase_indent();
             for _ in 0..entry_count {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -309,7 +324,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -324,12 +339,12 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             for _ in 0..entry_count {
                 // Technically not boxes, but can be parsed as if they are
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Skip);
             }
             logger.decrease_indent();
         }
-        "avc1" => {
-            logger.log_box_title("SampleEntry(avc1)");
+        "avc1" | "mp4a" => {
+            logger.log_box_title(format!("SampleEntry({})", box_type));
             //Technically not a box, but can be parsed as if it was
             let _reserved = reader.read_string(6);
             let data_reference_index = reader.read_u16();
@@ -379,12 +394,28 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.debug_box("(skipping)"); //TODO
             reader.skip_bytes(inner_size as u32).unwrap();
         }
+        "sgpd" => {
+            logger.log_box_title("Sample Group Description Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+        "sbgp" => {
+            logger.log_box_title("Sample to Group Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+        "sdtp" => {
+            logger.log_box_title("Sample Dependency Type Box");
+            logger.debug_box("(skipping)"); //TODO
+            reader.skip_bytes(inner_size as u32).unwrap();
+        }
+
         "udta" => {
             logger.log_box_title("User Data Box (container)");
             logger.increase_indent();
             let end_offset = reader.position() + inner_size as u64;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Skip);
             }
             logger.decrease_indent();
         }
@@ -397,7 +428,7 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
             logger.increase_indent();
             let end_offset = reader.position() + remaining;
             while reader.position() < end_offset {
-                parse_box(reader, logger);
+                parse_box(reader, logger, HandleUnknown::Panic);
             }
             logger.decrease_indent();
         }
@@ -409,13 +440,21 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger) {
                 .expect("Truncated 'ilst' box");
         }
 
-        _ => {
-            todo!("Unhandled box: {:?} (inner size: {})", box_type, inner_size);
-        }
+        _ => match handle_unknown {
+            HandleUnknown::Skip => {
+                logger.log_box_title(format!("Skipping unknown: '{}' ({} bytes)", box_type, size));
+                reader
+                    .skip_bytes(inner_size as u32)
+                    .unwrap_or_else(|e| panic!("Truncated '{}' box: {}", box_type, e));
+            }
+            HandleUnknown::Panic => {
+                todo!("Unhandled box: {:?} (inner size: {})", box_type, inner_size);
+            }
+        },
     }
 }
 
-fn as_timestamp(epoch_secs: u32) -> DateTime<Utc> {
-    let system_time = UNIX_EPOCH + Duration::from_secs(epoch_secs as u64);
-    system_time.into()
+fn as_timestamp(epoch_secs: u32) -> NaiveDateTime {
+    let epoch_1904: NaiveDateTime = NaiveDate::from_ymd(1904, 1, 1).and_hms(0, 0, 0);
+    epoch_1904 + Duration::seconds(epoch_secs as i64)
 }
