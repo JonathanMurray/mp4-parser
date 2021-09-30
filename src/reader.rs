@@ -87,6 +87,10 @@ impl<'a> Reader<'a> {
         buf
     }
 
+    pub fn read_exact(&mut self, buf: &mut [u8]) {
+        self.cursor.read_exact(buf).unwrap();
+    }
+
     pub fn skip_bytes(&mut self, n_bytes: u32) -> Result<(), String> {
         let pos = self.cursor.position();
         let target = pos + n_bytes as u64;
