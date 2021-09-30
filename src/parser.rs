@@ -376,23 +376,51 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
         }
         "ctts" => {
             logger.log_box_title("Composition Time to Sample Box");
-            logger.debug_box("(skipping)"); //TODO
-            reader.skip_bytes(inner_size as u32).unwrap();
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            reader.skip_bytes((4 + 4) * entry_count).unwrap();
+            logger.debug_box(format!(
+                "(skipping {} bytes of entries)",
+                (4 + 4) * entry_count
+            ));
         }
         "stsc" => {
             logger.log_box_title("Sample to Chunk Box");
-            logger.debug_box("(skipping)"); //TODO
-            reader.skip_bytes(inner_size as u32).unwrap();
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            reader.skip_bytes((4 + 4 + 4) * entry_count).unwrap();
+            logger.debug_box(format!(
+                "(skipping {} bytes of entries)",
+                (4 + 4 + 4) * entry_count
+            ));
         }
         "stsz" => {
-            logger.log_box_title("Sample Table Box");
-            logger.debug_box("(skipping)"); //TODO
-            reader.skip_bytes(inner_size as u32).unwrap();
+            logger.log_box_title("Sample Size Box");
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let sample_size = reader.read_u32();
+            if sample_size != 0 {
+                logger.debug_box_attr("Sample size", &sample_size);
+            }
+            let sample_count = reader.read_u32();
+            logger.debug_box_attr("# samples", &sample_count);
+            if sample_size == 0 {
+                reader.skip_bytes(4 * sample_count).unwrap();
+                logger.debug_box(format!("(skipping {} bytes of entries)", 4 * sample_count));
+            }
         }
         "stco" => {
             logger.log_box_title("Chunk Offset Box");
-            logger.debug_box("(skipping)"); //TODO
-            reader.skip_bytes(inner_size as u32).unwrap();
+            let _version = reader.read_u8();
+            let _flags = reader.read_bytes(3);
+            let entry_count = reader.read_u32();
+            logger.debug_box_attr("# entries", &entry_count);
+            reader.skip_bytes(4 * entry_count).unwrap();
+            logger.debug_box(format!("(skipping {} bytes of entries)", 4 * entry_count));
         }
         "sgpd" => {
             logger.log_box_title("Sample Group Description Box");
