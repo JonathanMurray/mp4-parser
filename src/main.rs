@@ -3,9 +3,7 @@ use std::io::Read;
 
 use clap::{arg_enum, App, Arg};
 
-use logger::{Logger, LOG_LEVEL_DEBUG};
-
-use crate::logger::{LOG_LEVEL_INFO, LOG_LEVEL_NONE};
+use logger::{Logger, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NONE, LOG_LEVEL_TRACE};
 
 mod logger;
 mod parser;
@@ -14,9 +12,10 @@ mod reader;
 arg_enum! {
     #[derive(PartialEq, Debug)]
     pub enum LogLevelArg {
-        Debug,
-        Info,
         None,
+        Info,
+        Debug,
+        Trace,
     }
 }
 
@@ -40,12 +39,13 @@ fn main() {
         )
         .get_matches();
 
-    let log_level = matches.value_of("loglevel");
+    let log_level = matches.value_of("loglevel").map(|v| v.to_lowercase());
     let path = matches.value_of("FILE").unwrap();
-    let verbosity = match log_level {
+    let verbosity = match log_level.as_ref().map(|v| &v[..]) {
+        Some("none") => LOG_LEVEL_NONE,
         Some("info") => LOG_LEVEL_INFO,
         Some("debug") => LOG_LEVEL_DEBUG,
-        Some("none") => LOG_LEVEL_NONE,
+        Some("trace") => LOG_LEVEL_TRACE,
         None => LOG_LEVEL_DEBUG,
         _ => panic!("Unhandled log level: {:?}", log_level),
     };

@@ -10,5 +10,5 @@ cargo run <some mp4-file>
 
 Example that uses provided test file:
 ```
-cargo run testfile.mp4
+cargo run vid_120ms.mp4
 ```

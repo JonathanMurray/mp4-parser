@@ -4,6 +4,7 @@ pub type LogLevel = u32;
 pub const LOG_LEVEL_NONE: LogLevel = 0;
 pub const LOG_LEVEL_INFO: LogLevel = 1;
 pub const LOG_LEVEL_DEBUG: LogLevel = 2;
+pub const LOG_LEVEL_TRACE: LogLevel = 3;
 
 pub struct Logger {
     verbosity: LogLevel,
@@ -43,6 +44,12 @@ impl Logger {
 
     pub fn debug_box(&self, text: impl AsRef<str>) {
         if self.verbosity >= LOG_LEVEL_DEBUG {
+            println!("{:indent$}| {}", "", text.as_ref(), indent = self.indent);
+        }
+    }
+
+    pub fn trace_box(&self, text: impl AsRef<str>) {
+        if self.verbosity >= LOG_LEVEL_TRACE {
             println!("{:indent$}| {}", "", text.as_ref(), indent = self.indent);
         }
     }
