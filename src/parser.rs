@@ -182,15 +182,66 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
             }
             logger.decrease_indent();
         }
-        "avc1" | "mp4a" => {
-            logger.log_box_title(format!("SampleEntry({})", box_type));
+        "mp4a" => {
+            logger.log_box_title(format!("AudioSampleEntry({})", box_type));
             //Technically not a box, but can be parsed as if it was
             let _reserved = reader.read_string(6);
             let data_reference_index = reader.read_u16();
             logger.debug_box_attr("Data reference index", &data_reference_index);
-            let remaining = inner_size - 8;
-            reader.skip_bytes(remaining as u32).unwrap();
-            logger.debug_box(format!("(skipping {} bytes of data)", remaining));
+
+            let mut remaining = inner_size - 8;
+
+            // https://www.fatalerrors.org/a/analysis-of-mp4-file-format.html
+
+            let _reserved = reader.read_bytes(4 * 2);
+            let channel_count = reader.read_u16();
+            let sample_size = reader.read_u16();
+            let _predefined = reader.read_bytes(2);
+            let _reserved = reader.read_bytes(2);
+            let sample_rate = reader.read_fixed_point_16_16();
+
+            remaining -= 20;
+
+            logger.debug_box_attr("Channel count", &channel_count);
+            logger.debug_box_attr("Sample size", &sample_size);
+            logger.debug_box_attr("Sample rate", &sample_rate);
+
+            parse_container_sub_boxes(reader, remaining, logger, HandleUnknown::Skip);
+        }
+        "avc1" => {
+            logger.log_box_title(format!("VisualSampleEntry({})", box_type));
+            //Technically not a box, but can be parsed as if it was
+            let _reserved = reader.read_string(6);
+            let data_reference_index = reader.read_u16();
+            logger.debug_box_attr("Data reference index", &data_reference_index);
+            let mut remaining = inner_size - 8;
+
+            // https://www.fatalerrors.org/a/analysis-of-mp4-file-format.html
+
+            reader.skip_bytes(2).unwrap(); // predefined
+            reader.skip_bytes(2).unwrap(); // reserved
+            reader.skip_bytes(4 * 3).unwrap(); // predefined
+            let width = reader.read_u16();
+            let height = reader.read_u16();
+            let hor_resolution = reader.read_fixed_point_16_16();
+            let ver_resolution = reader.read_fixed_point_16_16();
+            reader.skip_bytes(4).unwrap(); // reserved
+            let frame_count = reader.read_u16();
+            let compressor_name = reader.read_string(32);
+            let depth = reader.read_u16();
+            reader.skip_bytes(2).unwrap(); // predefined
+
+            remaining -= 70;
+
+            logger.debug_box_attr("Width", &width);
+            logger.debug_box_attr("Height", &height);
+            logger.debug_box_attr("Horizontal resolution", &hor_resolution);
+            logger.debug_box_attr("Vertical resolution", &ver_resolution);
+            logger.debug_box_attr("Frame count", &frame_count);
+            logger.debug_box_attr("Compressor name", &compressor_name);
+            logger.debug_box_attr("Depth", &depth);
+
+            parse_container_sub_boxes(reader, remaining, logger, HandleUnknown::Skip);
         }
         "stts" => {
             logger.log_box_title("Decoding Time to Sample Box");
@@ -295,12 +346,17 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
             FullBoxHeader::parse(reader);
             parse_container_sub_boxes(reader, inner_size - 4, logger, HandleUnknown::Panic);
         }
+        // QuickTime
         "ilst" => {
-            logger.log_box_title("Unknown: 'ilst'");
-            logger.debug_box("(skipping)"); //TODO
-            reader
-                .skip_bytes(inner_size as u32)
-                .expect("Truncated 'ilst' box");
+            logger.log_box_title("QuickTime Metadata Item List");
+            parse_container_sub_boxes(reader, inner_size - 4, logger, HandleUnknown::Panic);
+        }
+        // QuickTime
+        "©too" => {
+            logger.log_box_title("QuickTime Metadata Item List Encoder Tag");
+            let remaining = inner_size;
+            let encoder_tag_content = reader.read_string(remaining as usize);
+            logger.debug_box_attr("Encoder Tag", &encoder_tag_content);
         }
 
         _ => match handle_unknown {

@@ -15,7 +15,14 @@ impl BoxHeader {
         let start_offset = reader.position();
 
         let mut size = reader.read_u32() as u64;
-        let box_type = reader.read_string(4);
+        let box_type = reader.read_bytes(4);
+        let box_type = String::from_utf8(box_type).unwrap_or_else(|e| {
+            // QuickTime has boxes that begin with the copyright symbol ©, but it's
+            // encoded as a single byte 0xA9. For these boxes the box_type is not valid UTF-8.
+            let buf = e.into_bytes();
+            let u16_buf = [buf[0] as u16, buf[1] as u16, buf[2] as u16, buf[3] as u16];
+            String::from_utf16(&u16_buf).unwrap()
+        });
 
         if size == 1 {
             // largesize

@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use std::string::FromUtf8Error;
 
 pub struct Reader<'a> {
     cursor: Cursor<&'a [u8]>,
@@ -67,17 +68,21 @@ impl<'a> Reader<'a> {
     }
 
     pub fn read_string(&mut self, len: usize) -> String {
+        self.try_read_string(len).unwrap()
+    }
+
+    pub fn try_read_string(&mut self, len: usize) -> Result<String, FromUtf8Error> {
         let mut buf = Vec::new();
         buf.resize(len, 0);
         self.cursor.read_exact(&mut buf).unwrap();
-        String::from_utf8(buf).unwrap()
+        String::from_utf8(buf)
     }
 
     pub fn read_string_inexact(&mut self, max_len: usize) -> String {
         let mut buf = Vec::new();
         buf.resize(max_len, 0);
-        let _n_read = self.cursor.read(&mut buf).unwrap();
-        String::from_utf8_lossy(&buf).to_string()
+        let n_read = self.cursor.read(&mut buf).unwrap();
+        String::from_utf8_lossy(&buf[..n_read]).to_string()
     }
 
     pub fn read_bytes(&mut self, n_bytes: usize) -> Vec<u8> {
