@@ -419,6 +419,47 @@ impl SyncSampleBox {
     }
 }
 
+/// trex
+#[derive(Debug)]
+pub struct TrackExtendsBox {
+    pub track_id: u32,
+    pub default_sample_description_index: u32,
+    pub default_sample_duration: u32,
+    pub default_sample_size: u32,
+    pub default_sample_flags: u32,
+}
+
+impl TrackExtendsBox {
+    pub fn parse(reader: &mut Reader, _inner_size: u64) -> Self {
+        FullBoxHeader::parse(reader);
+        let track_id = reader.read_u32();
+        let default_sample_description_index = reader.read_u32();
+        let default_sample_duration = reader.read_u32();
+        let default_sample_size = reader.read_u32();
+        let default_sample_flags = reader.read_u32();
+        Self {
+            track_id,
+            default_sample_description_index,
+            default_sample_duration,
+            default_sample_size,
+            default_sample_flags,
+        }
+    }
+}
+
+/// mfhd
+#[derive(Debug)]
+pub struct MovieFragmentHeaderBox {
+    pub sequence_number: u32,
+}
+
+impl MovieFragmentHeaderBox {
+    pub fn parse(reader: &mut Reader, _inner_size: u64) -> Self {
+        FullBoxHeader::parse(reader);
+        let sequence_number = reader.read_u32();
+        Self { sequence_number }
+    }
+}
 fn as_timestamp(epoch_secs: u32) -> NaiveDateTime {
     let epoch_1904: NaiveDateTime = NaiveDate::from_ymd(1904, 1, 1).and_hms(0, 0, 0);
     epoch_1904 + Duration::seconds(epoch_secs as i64)

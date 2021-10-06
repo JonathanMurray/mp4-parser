@@ -1,7 +1,7 @@
 use crate::boxes::{
     BoxHeader, DecodingTimeToSampleBox, EditListBox, FileTypeBox, FreeSpaceBox, FullBoxHeader,
-    HandlerReferenceBox, MediaDataBox, MediaHeaderBox, MovieHeaderBox, SoundMediaHandler,
-    SyncSampleBox, TrackHeaderBox, VideoMediaHandler,
+    HandlerReferenceBox, MediaDataBox, MediaHeaderBox, MovieFragmentHeaderBox, MovieHeaderBox,
+    SoundMediaHandler, SyncSampleBox, TrackExtendsBox, TrackHeaderBox, VideoMediaHandler,
 };
 use crate::logger::Logger;
 use crate::reader::Reader;
@@ -337,6 +337,42 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
             reader.skip_bytes(inner_size as u32).unwrap();
         }
 
+        "mvex" => {
+            logger.log_box_title("Movie Extends Box (container)");
+            parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Panic);
+        }
+        "trex" => {
+            logger.log_box_title("Track Extends Box");
+            let b = TrackExtendsBox::parse(reader, inner_size);
+
+            logger.debug_box_attr("Track ID", &b.track_id);
+            logger.debug_box_attr(
+                "Default smpl. descr. index",
+                &b.default_sample_description_index,
+            );
+            logger.debug_box_attr("Default sample duration", &b.default_sample_duration);
+            logger.debug_box_attr("Default sample size", &b.default_sample_size);
+            logger.debug_box_attr("Default sample flags", &b.default_sample_flags);
+        }
+        "moof" => {
+            logger.log_box_title("Movie Fragment Box (container)");
+            parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Panic);
+        }
+        "mfhd" => {
+            logger.log_box_title("Movie Fragment Header Box");
+            let b = MovieFragmentHeaderBox::parse(reader, inner_size);
+            logger.debug_box_attr("Sequence number", &b.sequence_number);
+        }
+        "traf" => {
+            logger.log_box_title("Track Fragment Box (container)");
+            //TODO don't skip over sub boxes
+            parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Skip);
+        }
+        "mfra" => {
+            logger.log_box_title("Movie Fragment Random Access Box (container)");
+            //TODO don't skip over sub boxes
+            parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Skip);
+        }
         "udta" => {
             logger.log_box_title("User Data Box (container)");
             parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Skip);
