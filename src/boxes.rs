@@ -1,73 +1,6 @@
 use crate::reader::Reader;
 use chrono::{Duration, NaiveDate, NaiveDateTime};
 
-/// Box (abstract)
-#[derive(Debug)]
-pub struct BoxHeader {
-    pub start_offset: u64,
-    pub box_size: u64,
-    pub box_type: String,
-    pub inner_size: u64,
-}
-
-impl BoxHeader {
-    pub fn parse(reader: &mut Reader) -> Self {
-        let start_offset = reader.position();
-
-        let mut size = reader.read_u32() as u64;
-        let box_type = reader.read_bytes(4);
-        let box_type = String::from_utf8(box_type).unwrap_or_else(|e| {
-            // QuickTime has boxes that begin with the copyright symbol ©, but it's
-            // encoded as a single byte 0xA9. For these boxes the box_type is not valid UTF-8.
-            let buf = e.into_bytes();
-            let u16_buf = [buf[0] as u16, buf[1] as u16, buf[2] as u16, buf[3] as u16];
-            String::from_utf16(&u16_buf).unwrap()
-        });
-
-        if size == 1 {
-            // largesize
-            size = reader.read_u64();
-        } else if size == 0 {
-            println!("DEBUG: {:?}", reader.read_string_inexact(256));
-            todo!("Handle box with size=0 (box '{}' extends to EOF)", box_type)
-        }
-
-        assert!(
-            size >= 8,
-            "Box {} (at {}) has invalid size: {}",
-            box_type,
-            start_offset,
-            size
-        );
-
-        let inner_size = size - 8;
-
-        Self {
-            start_offset,
-            box_size: size,
-            box_type,
-            inner_size,
-        }
-    }
-}
-
-/// FullBox (abstract)
-#[derive(Debug)]
-pub struct FullBoxHeader {
-    pub version: u8,
-    pub flags: [u8; 3],
-}
-
-impl FullBoxHeader {
-    pub fn parse(reader: &mut Reader) -> Self {
-        let version = reader.read_u8();
-        let mut flags = [0; 3];
-        reader.read_exact(&mut flags);
-
-        Self { version, flags }
-    }
-}
-
 /// ftyp
 #[derive(Debug)]
 pub struct FileTypeBox {
@@ -92,6 +25,19 @@ impl FileTypeBox {
             compatible_brands,
         }
     }
+
+    pub fn name() -> &'static str {
+        "File Type Box"
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Major brand", &self.major_brand);
+        print("Minor version", &self.minor_version);
+        print("Compatible", &format!("{:?}", self.compatible_brands));
+    }
 }
 
 /// mdat
@@ -106,6 +52,10 @@ impl MediaDataBox {
 
         Self
     }
+
+    pub fn name() -> &'static str {
+        "Media Data Box"
+    }
 }
 
 /// free
@@ -116,6 +66,10 @@ impl FreeSpaceBox {
     pub fn parse(_reader: &mut Reader, inner_size: u64) -> Self {
         assert_eq!(inner_size, 0);
         Self
+    }
+
+    pub fn name() -> &'static str {
+        "Free Space Box"
     }
 }
 
@@ -168,6 +122,24 @@ impl MovieHeaderBox {
                 next_track_id,
             }
         }
+    }
+
+    pub fn name() -> &'static str {
+        "Movie Header Box"
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Created", &self.creation_time);
+        print("Modified", &self.modification_time);
+        print("Timescale", &self.timescale);
+        print("Duration", &self.duration);
+        print("Rate", &self.rate);
+        print("Volume", &self.volume);
+        print("Matrix", &format!("{:?}", self.matrix));
+        print("Next track ID", &self.next_track_id);
     }
 }
 
@@ -460,7 +432,75 @@ impl MovieFragmentHeaderBox {
         Self { sequence_number }
     }
 }
+
 fn as_timestamp(epoch_secs: u32) -> NaiveDateTime {
     let epoch_1904: NaiveDateTime = NaiveDate::from_ymd(1904, 1, 1).and_hms(0, 0, 0);
     epoch_1904 + Duration::seconds(epoch_secs as i64)
+}
+
+/// Box (abstract)
+#[derive(Debug)]
+pub struct BoxHeader {
+    pub start_offset: u64,
+    pub box_size: u64,
+    pub box_type: String,
+    pub inner_size: u64,
+}
+
+impl BoxHeader {
+    pub fn parse(reader: &mut Reader) -> Self {
+        let start_offset = reader.position();
+
+        let mut size = reader.read_u32() as u64;
+        let box_type = reader.read_bytes(4);
+        let box_type = String::from_utf8(box_type).unwrap_or_else(|e| {
+            // QuickTime has boxes that begin with the copyright symbol ©, but it's
+            // encoded as a single byte 0xA9. For these boxes the box_type is not valid UTF-8.
+            let buf = e.into_bytes();
+            let u16_buf = [buf[0] as u16, buf[1] as u16, buf[2] as u16, buf[3] as u16];
+            String::from_utf16(&u16_buf).unwrap()
+        });
+
+        if size == 1 {
+            // largesize
+            size = reader.read_u64();
+        } else if size == 0 {
+            println!("DEBUG: {:?}", reader.read_string_inexact(256));
+            todo!("Handle box with size=0 (box '{}' extends to EOF)", box_type)
+        }
+
+        assert!(
+            size >= 8,
+            "Box {} (at {}) has invalid size: {}",
+            box_type,
+            start_offset,
+            size
+        );
+
+        let inner_size = size - 8;
+
+        Self {
+            start_offset,
+            box_size: size,
+            box_type,
+            inner_size,
+        }
+    }
+}
+
+/// FullBox (abstract)
+#[derive(Debug)]
+pub struct FullBoxHeader {
+    pub version: u8,
+    pub flags: [u8; 3],
+}
+
+impl FullBoxHeader {
+    pub fn parse(reader: &mut Reader) -> Self {
+        let version = reader.read_u8();
+        let mut flags = [0; 3];
+        reader.read_exact(&mut flags);
+
+        Self { version, flags }
+    }
 }

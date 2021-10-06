@@ -54,7 +54,7 @@ impl Logger {
         }
     }
 
-    pub fn debug_box_attr(&self, label: &str, value: &impl Display) {
+    pub fn debug_box_attr(&self, label: &str, value: &dyn Display) {
         if self.verbosity >= LOG_LEVEL_DEBUG {
             println!("{:indent$}| {}: {}", "", label, value, indent = self.indent);
         }

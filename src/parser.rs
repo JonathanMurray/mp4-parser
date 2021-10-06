@@ -33,22 +33,19 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
 
     match box_type.as_ref() {
         "ftyp" => {
-            logger.log_box_title("File Type Box");
+            logger.log_box_title(FileTypeBox::name());
             let b = FileTypeBox::parse(reader, inner_size);
-            logger.debug_box_attr("Major brand", &b.major_brand);
-            logger.debug_box_attr("Minor version", &b.minor_version);
-            logger.debug_box(format!("Compatible: {:?}", b.compatible_brands));
-
+            b.print_attributes(|x, y| logger.debug_box_attr(x, y));
             if b.major_brand == "qt  " {
                 println!("WARN: Apple QuickTime is not supported.");
             }
         }
         "free" => {
-            logger.log_box_title("Free Space Box");
+            logger.log_box_title(FreeSpaceBox::name());
             FreeSpaceBox::parse(reader, inner_size);
         }
         "mdat" => {
-            logger.log_box_title("Media Data Box");
+            logger.log_box_title(MediaDataBox::name());
             MediaDataBox::parse(reader, inner_size);
             logger.debug_box("(skipping)"); //TODO
         }
@@ -57,16 +54,9 @@ fn parse_box(reader: &mut Reader, logger: &mut Logger, handle_unknown: HandleUnk
             parse_container_sub_boxes(reader, inner_size as u64, logger, HandleUnknown::Panic);
         }
         "mvhd" => {
-            logger.log_box_title("Movie Header Box");
+            logger.log_box_title(MovieHeaderBox::name());
             let b = MovieHeaderBox::parse(reader, inner_size);
-            logger.debug_box_attr("Created", &b.creation_time);
-            logger.debug_box_attr("Modified", &b.modification_time);
-            logger.debug_box_attr("Timescale", &b.timescale);
-            logger.debug_box_attr("Duration", &b.duration);
-            logger.debug_box_attr("Rate", &b.rate);
-            logger.debug_box_attr("Volume", &b.volume);
-            logger.debug_box_attr("Matrix", &format!("{:?}", b.matrix));
-            logger.debug_box_attr("Next track ID", &b.next_track_id);
+            b.print_attributes(|x, y| logger.debug_box_attr(x, y));
         }
         "trak" => {
             logger.log_box_title("Track Box (container)");
