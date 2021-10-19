@@ -8,6 +8,7 @@ use logger::{Logger, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NONE, LOG_LEVEL_
 mod boxes;
 mod logger;
 mod parser;
+mod quicktime;
 mod reader;
 
 arg_enum! {

@@ -1,5 +1,224 @@
-use crate::reader::Reader;
 use chrono::{Duration, NaiveDate, NaiveDateTime};
+
+use crate::quicktime::MetadataItemList;
+use crate::reader::Reader;
+
+#[derive(Debug)]
+pub enum Mp4Box {
+    QuickTimeMetadataItemList(MetadataItemList),
+    Ftyp(FileTypeBox),
+    Free,
+    Mdat,
+    Container(&'static str),
+    Mvhd(MovieHeaderBox),
+    Tkhd(TrackHeaderBox),
+    Elst(EditListBox),
+    Mdhd(MediaHeaderBox),
+    Hdlr(HandlerReferenceBox),
+    Vmhd(VideoMediaHandler),
+    Smhd(SoundMediaHandler),
+    Dref(DataReferenceBox),
+    Stsd(SampleDescriptionBox),
+    Stts(DecodingTimeToSampleBox),
+    Stss(SyncSampleBox),
+    Ctts(CompositionTimeToSampleBox),
+    Stsc(SampleToChunkBox),
+    Stsz(SampleSizeBox),
+    Stco(ChunkOffsetBox),
+    Sgpd(SampleGroupDescriptionBox),
+    Sbgp(SampleToGroupBox),
+    Sdtp(SampleDependencyTypeBox),
+    Trex(TrackExtendsBox),
+    Mfhd(MovieFragmentHeaderBox),
+}
+
+impl Mp4Box {
+    pub fn parse_contents(reader: &mut Reader, box_type: &str, inner_size: u64) -> Option<Self> {
+        match box_type {
+            "ftyp" => {
+                let b = FileTypeBox::parse(reader, inner_size);
+                if b.major_brand == "qt  " {
+                    println!("WARN: Apple QuickTime is not supported.");
+                }
+                Some(Mp4Box::Ftyp(b))
+            }
+            "free" => {
+                FreeSpaceBox::parse(reader, inner_size);
+                Some(Mp4Box::Free)
+            }
+            "mdat" => {
+                MediaDataBox::parse(reader, inner_size);
+                Some(Mp4Box::Mdat)
+            }
+            "moov" => Some(Mp4Box::Container("Movie Box (container)")),
+            "mvhd" => {
+                let b = MovieHeaderBox::parse(reader, inner_size);
+                Some(Mp4Box::Mvhd(b))
+            }
+            "trak" => Some(Mp4Box::Container("Track Box (container)")),
+            "tkhd" => {
+                let b = TrackHeaderBox::parse(reader, inner_size);
+                Some(Mp4Box::Tkhd(b))
+            }
+            "edts" => Some(Mp4Box::Container("Edit Box (container)")),
+            "elst" => {
+                let b = EditListBox::parse_header(reader);
+                Some(Mp4Box::Elst(b))
+            }
+            "mdia" => Some(Mp4Box::Container("Media Box (container)")),
+            "mdhd" => {
+                let b = MediaHeaderBox::parse(reader, inner_size);
+                Some(Mp4Box::Mdhd(b))
+            }
+            "hdlr" => {
+                let b = HandlerReferenceBox::parse(reader, inner_size);
+                Some(Mp4Box::Hdlr(b))
+            }
+            "minf" => Some(Mp4Box::Container("Media Information Box (container)")),
+            "vmhd" => {
+                let b = VideoMediaHandler::parse(reader, inner_size);
+                Some(Mp4Box::Vmhd(b))
+            }
+            "smhd" => {
+                let b = SoundMediaHandler::parse(reader, inner_size);
+                Some(Mp4Box::Smhd(b))
+            }
+            "dinf" => Some(Mp4Box::Container("Data Information Box (container)")),
+            "dref" => {
+                let b = DataReferenceBox::parse(reader);
+                Some(Mp4Box::Dref(b))
+            }
+            "stbl" => Some(Mp4Box::Container("Sample Table Box (container)")),
+            "stsd" => {
+                let b = SampleDescriptionBox::parse_header(reader, inner_size);
+                Some(Mp4Box::Stsd(b))
+            }
+            "stts" => {
+                let b = DecodingTimeToSampleBox::parse_header(reader);
+                Some(Mp4Box::Stts(b))
+            }
+            "stss" => {
+                let b = SyncSampleBox::parse_header(reader);
+                Some(Mp4Box::Stss(b))
+            }
+            "ctts" => {
+                let b = CompositionTimeToSampleBox::parse_header(reader);
+                Some(Mp4Box::Ctts(b))
+            }
+            "stsc" => {
+                let b = SampleToChunkBox::parse_header(reader);
+                Some(Mp4Box::Stsc(b))
+            }
+            "stsz" => {
+                let b = SampleSizeBox::parse_header(reader);
+                Some(Mp4Box::Stsz(b))
+            }
+            "stco" => {
+                let b = ChunkOffsetBox::parse_header(reader);
+                Some(Mp4Box::Stco(b))
+            }
+            "sgpd" => {
+                let b = SampleGroupDescriptionBox::parse_header(reader);
+                Some(Mp4Box::Sgpd(b))
+            }
+            "sbgp" => {
+                let b = SampleToGroupBox::parse_header(reader);
+                Some(Mp4Box::Sbgp(b))
+            }
+            "sdtp" => {
+                let b = SampleDependencyTypeBox::parse_header(reader);
+                Some(Mp4Box::Sdtp(b))
+            }
+            "mvex" => Some(Mp4Box::Container("Movie Extends Box (container)")),
+            "trex" => {
+                let b = TrackExtendsBox::parse(reader, inner_size);
+                Some(Mp4Box::Trex(b))
+            }
+            "moof" => Some(Mp4Box::Container("Movie Fragment Box (container)")),
+            "mfhd" => {
+                let b = MovieFragmentHeaderBox::parse(reader, inner_size);
+                Some(Mp4Box::Mfhd(b))
+            }
+            "traf" => Some(Mp4Box::Container("Track Fragment Box (container)")),
+            "mfra" => Some(Mp4Box::Container(
+                "Movie Fragment Random Access Box (container)",
+            )),
+            "udta" => Some(Mp4Box::Container("User Data Box (container)")),
+            "meta" => {
+                FullBoxHeader::parse(reader);
+                Some(Mp4Box::Container("The Meta Box (container)"))
+            }
+            "ilst" => Some(Mp4Box::QuickTimeMetadataItemList(MetadataItemList)),
+
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        use Mp4Box::*;
+        match self {
+            QuickTimeMetadataItemList(_) => "QuickTime Metadata Item List",
+            Container(title) => title,
+            Ftyp(_) => "File Type Box",
+            Mdat => "Media Data Box",
+            Free => "Free Space Box",
+            Mvhd(_) => "Movie Header Box",
+            Tkhd(_) => "Track Header Box",
+            Elst(_) => "Edit List Box",
+            Mdhd(_) => "Media Header Box",
+            Hdlr(_) => "Handler Reference Box",
+            Vmhd(_) => "Video Media Header",
+            Smhd(_) => "Sound Media Header",
+            Dref(_) => "Data Reference Box",
+            Stsd(_) => "Sample Description Box",
+            Stts(_) => "Decoding Time to Sample Box",
+            Stss(_) => "Sync Sample Box",
+            Ctts(_) => "Composition Time to Sample Box",
+            Stsc(_) => "Sample To Chunk Box",
+            Stsz(_) => "Sample Size Box",
+            Stco(_) => "Chunk Offset Box",
+            Sgpd(_) => "Sample Group Description Box",
+            Sbgp(_) => "Sample To Group Box",
+            Sdtp(_) => "Sample Dependency Type Box",
+            Trex(_) => "Track Extends Box",
+            Mfhd(_) => "Movie Fragment Header Box",
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        use Mp4Box::*;
+        match self {
+            QuickTimeMetadataItemList(_) => {}
+            Container(_) => {}
+            Ftyp(b) => b.print_attributes(print),
+            Mdat => {}
+            Free => {}
+            Mvhd(b) => b.print_attributes(print),
+            Tkhd(b) => b.print_attributes(print),
+            Elst(b) => b.print_attributes(print),
+            Mdhd(b) => b.print_attributes(print),
+            Hdlr(b) => b.print_attributes(print),
+            Vmhd(b) => b.print_attributes(print),
+            Smhd(b) => b.print_attributes(print),
+            Dref(b) => b.print_attributes(print),
+            Stsd(b) => b.print_attributes(print),
+            Stts(b) => b.print_attributes(print),
+            Stss(b) => b.print_attributes(print),
+            Ctts(b) => b.print_attributes(print),
+            Stsc(b) => b.print_attributes(print),
+            Stsz(b) => b.print_attributes(print),
+            Stco(b) => b.print_attributes(print),
+            Sgpd(b) => b.print_attributes(print),
+            Sbgp(b) => b.print_attributes(print),
+            Sdtp(b) => b.print_attributes(print),
+            Trex(b) => b.print_attributes(print),
+            Mfhd(b) => b.print_attributes(print),
+        }
+    }
+}
 
 /// ftyp
 #[derive(Debug)]
@@ -26,11 +245,7 @@ impl FileTypeBox {
         }
     }
 
-    pub fn name() -> &'static str {
-        "File Type Box"
-    }
-
-    pub fn print_attributes<F>(&self, print: F)
+    fn print_attributes<F>(&self, print: F)
     where
         F: Fn(&str, &dyn std::fmt::Display),
     {
@@ -52,10 +267,6 @@ impl MediaDataBox {
 
         Self
     }
-
-    pub fn name() -> &'static str {
-        "Media Data Box"
-    }
 }
 
 /// free
@@ -66,10 +277,6 @@ impl FreeSpaceBox {
     pub fn parse(_reader: &mut Reader, inner_size: u64) -> Self {
         assert_eq!(inner_size, 0);
         Self
-    }
-
-    pub fn name() -> &'static str {
-        "Free Space Box"
     }
 }
 
@@ -122,10 +329,6 @@ impl MovieHeaderBox {
                 next_track_id,
             }
         }
-    }
-
-    pub fn name() -> &'static str {
-        "Movie Header Box"
     }
 
     pub fn print_attributes<F>(&self, print: F)
@@ -205,6 +408,24 @@ impl TrackHeaderBox {
             }
         }
     }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Enabled", &self.track_enabled);
+        print("In movie", &self.track_in_movie);
+        print("In preview", &self.track_in_preview);
+        print("Created", &self.creation_time);
+        print("Modified", &self.modification_time);
+        print("Track ID", &self.track_id);
+        print("Duration", &self.duration);
+        print("Layer", &self.layer);
+        print("Alternate group", &self.alternate_group);
+        print("Volume", &self.volume);
+        print("Matrix", &format!("{:?}", self.matrix));
+        print("Dimension", &format!("{} x {}", self.width, self.height));
+    }
 }
 
 /// mdhd
@@ -246,6 +467,17 @@ impl MediaHeaderBox {
             language,
         }
     }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Created", &self.creation_time);
+        print("Modified", &self.modification_time);
+        print("Timescale", &self.timescale);
+        print("Duration", &self.duration);
+        print("Language", &self.language);
+    }
 }
 
 /// hdlr
@@ -267,6 +499,14 @@ impl HandlerReferenceBox {
 
         Self { handler_type, name }
     }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Handler type", &self.handler_type);
+        print("Name", &self.name);
+    }
 }
 
 /// vmhd
@@ -286,6 +526,14 @@ impl VideoMediaHandler {
             opcolor,
         }
     }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Graphics mode", &self.graphicsmode);
+        print("Opcolor", &format!("{:?}", &self.opcolor));
+    }
 }
 
 /// smhd
@@ -300,6 +548,55 @@ impl SoundMediaHandler {
         let balance = reader.read_fixed_point_8_8();
         let _reserved = reader.read_bytes(2);
         Self { balance }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Balance", &self.balance);
+    }
+}
+
+/// dref
+#[derive(Debug)]
+pub struct DataReferenceBox {
+    pub entry_count: u32,
+}
+
+/// url
+#[derive(Debug)]
+pub struct DataEntryUrlBox {
+    pub self_contained: bool,
+}
+
+impl DataReferenceBox {
+    pub fn parse(reader: &mut Reader) -> Self {
+        FullBoxHeader::parse(reader);
+        let entry_count = reader.read_u32();
+        Self { entry_count }
+    }
+
+    pub fn parse_entry(reader: &mut Reader) -> DataEntryUrlBox {
+        let header = BoxHeader::parse(reader);
+        if header.box_type != "url " {
+            todo!("Handle DataEntryUrnBox");
+        }
+        let full_box = FullBoxHeader::parse(reader);
+        if full_box.flags == [0, 0, 1] {
+            DataEntryUrlBox {
+                self_contained: true,
+            }
+        } else {
+            todo!("Handle external media URL")
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
     }
 }
 
@@ -317,6 +614,30 @@ pub struct EditListEntry {
     pub media_rate_fraction: i16,
 }
 
+impl EditListEntry {
+    fn parse(reader: &mut Reader) -> Self {
+        let segment_duration = reader.read_u32();
+        let media_time = reader.read_i32();
+        let media_rate_integer = reader.read_i16();
+        let media_rate_fraction = reader.read_i16();
+        Self {
+            segment_duration,
+            media_time,
+            media_rate_integer,
+            media_rate_fraction,
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Segment duration", &self.segment_duration);
+        print("Media time", &self.media_time);
+        print("Media rate", &self.media_rate_integer);
+    }
+}
+
 impl EditListBox {
     pub fn parse_header(reader: &mut Reader) -> Self {
         let full_box = FullBoxHeader::parse(reader);
@@ -328,16 +649,14 @@ impl EditListBox {
     }
 
     pub fn parse_entry(reader: &mut Reader) -> EditListEntry {
-        let segment_duration = reader.read_u32();
-        let media_time = reader.read_i32();
-        let media_rate_integer = reader.read_i16();
-        let media_rate_fraction = reader.read_i16();
-        EditListEntry {
-            segment_duration,
-            media_time,
-            media_rate_integer,
-            media_rate_fraction,
-        }
+        EditListEntry::parse(reader)
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
     }
 }
 
@@ -353,6 +672,25 @@ pub struct DecodingTimeToSampleEntry {
     pub sample_delta: u32,
 }
 
+impl DecodingTimeToSampleEntry {
+    fn parse(reader: &mut Reader) -> Self {
+        let sample_count = reader.read_u32();
+        let sample_delta = reader.read_u32();
+        Self {
+            sample_count,
+            sample_delta,
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Sample count", &self.sample_count);
+        print("Sample delta", &self.sample_delta);
+    }
+}
+
 impl DecodingTimeToSampleBox {
     pub fn parse_header(reader: &mut Reader) -> Self {
         let full_box = FullBoxHeader::parse(reader);
@@ -364,12 +702,14 @@ impl DecodingTimeToSampleBox {
     }
 
     pub fn parse_entry(reader: &mut Reader) -> DecodingTimeToSampleEntry {
-        let sample_count = reader.read_u32();
-        let sample_delta = reader.read_u32();
-        DecodingTimeToSampleEntry {
-            sample_count,
-            sample_delta,
-        }
+        DecodingTimeToSampleEntry::parse(reader)
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
     }
 }
 
@@ -388,6 +728,197 @@ impl SyncSampleBox {
 
     pub fn skip_entries(&self, reader: &mut Reader) {
         reader.skip_bytes(4 * self.entry_count).unwrap();
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
+    }
+}
+
+/// ctts
+#[derive(Debug)]
+pub struct CompositionTimeToSampleBox {
+    pub version: u8,
+    pub entry_count: u32,
+}
+
+impl CompositionTimeToSampleBox {
+    pub fn parse_header(reader: &mut Reader) -> Self {
+        let full_box = FullBoxHeader::parse(reader);
+        let entry_count = reader.read_u32();
+        Self {
+            version: full_box.version,
+            entry_count,
+        }
+
+        // TODO: handle entries
+        // for i in 0..entry_count {
+        //     let sample_count = reader.read_u32();
+        //     let sample_offset = reader.read_u32();
+        //     logger.trace_box(format!(
+        //         "({}) Sample count: {}, sample offset: {}",
+        //         i, sample_count, sample_offset,
+        //     ));
+        // }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
+    }
+}
+
+/// stsc
+#[derive(Debug)]
+pub struct SampleToChunkBox {
+    pub entry_count: u32,
+}
+
+impl SampleToChunkBox {
+    pub fn parse_header(reader: &mut Reader) -> Self {
+        FullBoxHeader::parse(reader);
+        let entry_count = reader.read_u32();
+        Self { entry_count }
+
+        // TODO: handle entries
+        // for i in 0..entry_count {
+        //     let first_chunk = reader.read_u32();
+        //     let samples_per_chunk = reader.read_u32();
+        //     let sample_description_index = reader.read_u32();
+        //     logger.trace_box(format!(
+        //         "({}) First chunk: {}, smpls/chunk: {}, smpl dscr idx: {}",
+        //         i, first_chunk, samples_per_chunk, sample_description_index,
+        //     ));
+        // }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
+    }
+}
+
+/// stsz
+#[derive(Debug)]
+pub struct SampleSizeBox {
+    pub sample_size: u32,
+    pub sample_count: u32,
+}
+
+impl SampleSizeBox {
+    pub fn parse_header(reader: &mut Reader) -> Self {
+        FullBoxHeader::parse(reader);
+
+        let sample_size = reader.read_u32();
+        let sample_count = reader.read_u32();
+        Self {
+            sample_size,
+            sample_count,
+        }
+
+        // TODO: handle entries
+        // if sample_size == 0 {
+        //     for i in 0..sample_count {
+        //         let sample_size = reader.read_u32();
+        //         logger.trace_box(format!("({}) Sample size: {}", i, sample_size));
+        //     }
+        // }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Sample size", &self.sample_size);
+        print("# samples", &self.sample_count);
+    }
+}
+
+/// stco
+#[derive(Debug)]
+pub struct ChunkOffsetBox {
+    pub entry_count: u32,
+}
+
+impl ChunkOffsetBox {
+    pub fn parse_header(reader: &mut Reader) -> Self {
+        FullBoxHeader::parse(reader);
+        let entry_count = reader.read_u32();
+        Self { entry_count }
+
+        // TODO: handle entries
+        // for i in 0..entry_count {
+        //     let chunk_offset = reader.read_u32();
+        //     logger.trace_box(format!("({}) Chunk offset: {}", i, chunk_offset))
+        // }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
+    }
+}
+
+/// sgpd
+#[derive(Debug)]
+pub struct SampleGroupDescriptionBox {}
+
+impl SampleGroupDescriptionBox {
+    pub fn parse_header(_reader: &mut Reader) -> Self {
+        // TODO
+        SampleGroupDescriptionBox {}
+    }
+
+    pub fn print_attributes<F>(&self, _print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        // TODO
+    }
+}
+
+/// sbgp
+#[derive(Debug)]
+pub struct SampleToGroupBox {}
+
+impl SampleToGroupBox {
+    pub fn parse_header(_reader: &mut Reader) -> Self {
+        // TODO
+        SampleToGroupBox {}
+    }
+
+    pub fn print_attributes<F>(&self, _print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        // TODO
+    }
+}
+
+/// sdtp
+#[derive(Debug)]
+pub struct SampleDependencyTypeBox {}
+
+impl SampleDependencyTypeBox {
+    pub fn parse_header(_reader: &mut Reader) -> Self {
+        // TODO
+        SampleDependencyTypeBox {}
+    }
+
+    pub fn print_attributes<F>(&self, _print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        // TODO
     }
 }
 
@@ -417,6 +948,20 @@ impl TrackExtendsBox {
             default_sample_flags,
         }
     }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Track ID", &self.track_id);
+        print(
+            "Default smpl. descr. index",
+            &self.default_sample_description_index,
+        );
+        print("Default sample duration", &self.default_sample_duration);
+        print("Default sample size", &self.default_sample_size);
+        print("Default sample flags", &self.default_sample_flags);
+    }
 }
 
 /// mfhd
@@ -430,6 +975,184 @@ impl MovieFragmentHeaderBox {
         FullBoxHeader::parse(reader);
         let sequence_number = reader.read_u32();
         Self { sequence_number }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Sequence number", &self.sequence_number);
+    }
+}
+
+/// stsd
+#[derive(Debug)]
+pub struct SampleDescriptionBox {
+    pub entry_count: u32,
+}
+
+impl SampleDescriptionBox {
+    pub fn parse_header(reader: &mut Reader, _inner_size: u64) -> Self {
+        FullBoxHeader::parse(reader);
+
+        let entry_count = reader.read_u32();
+        Self { entry_count }
+    }
+
+    pub fn parse_entry(&self, reader: &mut Reader) -> SampleEntry {
+        let header = BoxHeader::parse(reader);
+        match header.box_type.as_ref() {
+            "mp4a" => SampleEntry::Mp4a(Mp4aAudioSampleEntry::parse(reader)),
+            "avc1" => SampleEntry::Avc1(Avc1VisualSampleEntry::parse(reader)),
+            _ => panic!("Unhandled sample description entry: {}", header.box_type),
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("# entries", &self.entry_count);
+    }
+}
+
+#[derive(Debug)]
+pub enum SampleEntry {
+    Mp4a(Mp4aAudioSampleEntry),
+    Avc1(Avc1VisualSampleEntry),
+}
+
+impl SampleEntry {
+    pub fn name(&self) -> &'static str {
+        match self {
+            SampleEntry::Mp4a(_) => "AudioSampleEntry(mp4a)",
+            SampleEntry::Avc1(_) => "VisualSampleEntry(avc1)",
+        }
+    }
+
+    pub fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        match self {
+            SampleEntry::Mp4a(mp4a) => mp4a.print_attributes(print),
+            SampleEntry::Avc1(avc1) => avc1.print_attributes(print),
+        }
+    }
+}
+
+/// mp4a
+#[derive(Debug)]
+pub struct Mp4aAudioSampleEntry {
+    data_reference_index: u16,
+    channel_count: u16,
+    sample_size: u16,
+    sample_rate: f32,
+}
+
+impl Mp4aAudioSampleEntry {
+    fn parse(reader: &mut Reader) -> Self {
+        let _reserved = reader.read_string(6);
+        let data_reference_index = reader.read_u16();
+
+        //let mut remaining = inner_size - 8;
+
+        // https://www.fatalerrors.org/a/analysis-of-mp4-file-format.html
+
+        let _reserved = reader.read_bytes(4 * 2);
+        let channel_count = reader.read_u16();
+        let sample_size = reader.read_u16();
+        let _predefined = reader.read_bytes(2);
+        let _reserved = reader.read_bytes(2);
+        let sample_rate = reader.read_fixed_point_16_16();
+
+        //remaining -= 20;
+
+        // TODO ?
+        // parse_container_sub_boxes(reader, remaining, logger, HandleUnknown::Skip);
+
+        Self {
+            data_reference_index,
+            channel_count,
+            sample_size,
+            sample_rate,
+        }
+    }
+
+    fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Data reference index", &self.data_reference_index);
+        print("Channel count", &self.channel_count);
+        print("Sample size", &self.sample_size);
+        print("Sample rate", &self.sample_rate);
+    }
+}
+
+/// avc1
+#[derive(Debug)]
+pub struct Avc1VisualSampleEntry {
+    data_reference_index: u16,
+    width: u16,
+    height: u16,
+    hor_resolution: f32,
+    ver_resolution: f32,
+    frame_count: u16,
+    compressor_name: String,
+    depth: u16,
+}
+
+impl Avc1VisualSampleEntry {
+    fn parse(reader: &mut Reader) -> Self {
+        let _reserved = reader.read_string(6);
+        let data_reference_index = reader.read_u16();
+        //let mut remaining = inner_size - 8;
+
+        // https://www.fatalerrors.org/a/analysis-of-mp4-file-format.html
+
+        reader.skip_bytes(2).unwrap(); // predefined
+        reader.skip_bytes(2).unwrap(); // reserved
+        reader.skip_bytes(4 * 3).unwrap(); // predefined
+        let width = reader.read_u16();
+        let height = reader.read_u16();
+        let hor_resolution = reader.read_fixed_point_16_16();
+        let ver_resolution = reader.read_fixed_point_16_16();
+        reader.skip_bytes(4).unwrap(); // reserved
+        let frame_count = reader.read_u16();
+        let compressor_name = reader.read_string(32);
+        let depth = reader.read_u16();
+        reader.skip_bytes(2).unwrap(); // predefined
+
+        //remaining -= 70;
+
+        Self {
+            data_reference_index,
+            width,
+            height,
+            hor_resolution,
+            ver_resolution,
+            frame_count,
+            compressor_name,
+            depth,
+        }
+
+        // TODO ?
+        // parse_container_sub_boxes(reader, remaining, logger, HandleUnknown::Skip);
+    }
+
+    fn print_attributes<F>(&self, print: F)
+    where
+        F: Fn(&str, &dyn std::fmt::Display),
+    {
+        print("Data reference index", &self.data_reference_index);
+        print("Width", &self.width);
+        print("Height", &self.height);
+        print("Hor. resolution", &self.hor_resolution);
+        print("Ver. resolution", &self.ver_resolution);
+        print("Frame count", &self.frame_count);
+        print("Compressor name", &self.compressor_name);
+        print("Depth", &self.depth);
     }
 }
 
