@@ -1044,10 +1044,10 @@ impl SampleEntry {
 /// mp4a
 #[derive(Debug)]
 pub struct Mp4aAudioSampleEntry {
-    data_reference_index: u16,
-    channel_count: u16,
-    sample_size: u16,
-    sample_rate: f32,
+    pub data_reference_index: u16,
+    pub channel_count: u16,
+    pub sample_size: u16,
+    pub sample_rate: f32,
 }
 
 impl Mp4aAudioSampleEntry {
@@ -1093,14 +1093,14 @@ impl Mp4aAudioSampleEntry {
 /// avc1
 #[derive(Debug)]
 pub struct Avc1VisualSampleEntry {
-    data_reference_index: u16,
-    width: u16,
-    height: u16,
-    hor_resolution: f32,
-    ver_resolution: f32,
-    frame_count: u16,
-    compressor_name: String,
-    depth: u16,
+    pub data_reference_index: u16,
+    pub width: u16,
+    pub height: u16,
+    pub hor_resolution: f32,
+    pub ver_resolution: f32,
+    pub frame_count: u16,
+    pub compressor_name: String,
+    pub depth: u16,
 }
 
 impl Avc1VisualSampleEntry {
